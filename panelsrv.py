@@ -6,28 +6,50 @@ import json
 import signal
 import base64
 import io
+import os
 from rgbmatrix import graphics, RGBMatrix, RGBMatrixOptions
 from PIL import Image
 
 shutdown_event = asyncio.Event()
 config_updated = True
-configuration = {
-    "data": {
-        "scenes": [
-            {
-                "type": "string",
-                "value": "Welcome!",
-                "color": {"r": 255, "g": 255, "b": 0},
-                "effect": "scroll"
-            },        
-        ]
-    },
-    "options": {
-        "action": "loop",
-        "scrollspeed": 1,
-        "scrolldelay": 0.05,
-    }
-}
+configuration = { }
+
+# Load config
+def load_config(newconfig):
+    global configuration
+    global config_updated
+
+    # verify config
+    if "scrolldelay" not in newconfig["options"]:
+        if "scrollspeed" not in newconfig["options"]:
+            newconfig["options"]["scrollspeed"] = 1
+        newconfig["options"]["scrolldelay"] = 0.05 / newconfig["options"]["scrollspeed"]
+
+    for scene in newconfig["data"]["scenes"][:]:
+        if "type" not in scene or "value" not in scene:
+            newconfig["data"]["scenes"].remove(scene)
+            print(f"Deleting scene {scene} due to missing required keys!")
+        if "color" not in scene:
+            scene["color"] = {"r":255,"g":255,"b":0}
+        if "r" not in scene["color"]:
+            scene["color"]["r"] = 0
+        if "g" not in scene["color"]:
+            scene["color"]["g"] = 0
+        if "b" not in scene["color"]:
+            scene["color"]["b"] = 0
+        if "effect" not in scene:
+            scene["effect"] = "none"
+        if "display" not in scene:
+            scene["display"] = "center"
+        if "time" not in scene:
+            if scene["effect"] == "scroll":
+                scene["time"] = 0 # default of zero
+            else:
+                scene["time"] = 5 # default of 5s
+
+    # set update flag
+    configuration = newconfig
+    config_updated = True
 
 # Handle new WebSocket connections
 async def handle_connection(websocket):
@@ -40,37 +62,7 @@ async def handle_connection(websocket):
             try:
                 data = json.loads(message)
                 print("Received JSON:", data)
-                configuration = data
-
-                # verify data
-                if "scrolldelay" not in configuration["options"]:
-                    if "scrollspeed" not in configuration["options"]:
-                        configuration["options"]["scrollspeed"] = 1
-                    configuration["options"]["scrolldelay"] = 0.05 / configuration["options"]["scrollspeed"]
-
-                for scene in configuration["data"]["scenes"][:]:
-                    if "type" not in scene or "value" not in scene:
-                        configuration["data"]["scenes"].remove(scene)
-                        print(f"Deleting scene {scene} due to missing required keys!")
-                    if "color" not in scene:
-                        scene["color"] = {"r":255,"g":255,"b":0}
-                    if "r" not in scene["color"]:
-                        scene["color"]["r"] = 0
-                    if "g" not in scene["color"]:
-                        scene["color"]["g"] = 0
-                    if "b" not in scene["color"]:
-                        scene["color"]["b"] = 0
-                    if "effect" not in scene:
-                        scene["effect"] = "none"
-                    if "display" not in scene:
-                        scene["display"] = "center"
-                    if "time" not in scene:
-                        if scene["effect"] == "scroll":
-                            scene["time"] = 0 # default of zero
-                        else:
-                            scene["time"] = 5 # default of 5s
-
-                config_updated = True
+                load_config(data)
             except json.JSONDecodeError:
                 print("Invalid JSON received:", message)
     except websockets.exceptions.ConnectionClosed:
@@ -90,13 +82,15 @@ async def render_task():
     options = RGBMatrixOptions()
     options.rows = 32
     options.cols = 64
-    options.chain_length = 2
+    options.chain_length = 5
     options.parallel = 1
     options.row_address_type = 0
     options.multiplexing = 0
+    options.gpio_slowdown = 2
+    #options.limit_refresh_rate_hz = 120
     #options.pwm_bits = self.args.led_pwm_bits
     #options.brightness = self.args.led_brightness
-    #options.pwm_lsb_nanoseconds = self.args.led_pwm_lsb_nanoseconds
+    #options.pwm_lsb_nanoseconds = 150
     #options.led_rgb_sequence = self.args.led_rgb_sequence
     #options.pixel_mapper_config = self.args.led_pixel_mapper
     #options.panel_type = self.args.led_panel_type    
@@ -183,6 +177,21 @@ async def render_task():
 
 # Main server function
 async def main():
+    # Load default config
+    jsonfile = "default.json"
+
+    # Check if the file exists
+    if os.path.exists(jsonfile):
+        # Open and load the JSON data
+        with open(jsonfile, 'r') as file:
+            defaultcfg = json.load(file)
+        print("JSON data loaded successfully:")
+        print(defaultcfg)
+        load_config(defaultcfg)
+    else:
+        print(f"{jsonfile} does not exist.")
+        quit()
+        
     async with websockets.serve(handle_connection, "0.0.0.0", 8765):
         print("WebSocket server listening on ws://0.0.0.0:8765")
 
