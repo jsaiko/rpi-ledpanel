@@ -1,0 +1,16 @@
+{
+"data": {
+        "scenes": [
+            {
+                "type": "string",
+                "value": "Welcome!",
+                "color": {"r": 255, "g": 0, "b": 0},
+                "effect": "scroll"
+            }
+        ]
+    },
+    "options": {
+        "action": "loop",
+        "scrollspeed": 2
+    }
+}
